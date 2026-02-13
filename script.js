@@ -2,12 +2,20 @@
  * Fuente de datos y modelado
  */
 
-// Conectamos nuestra aplicación al API de coincap.
-// Vamos a solicitar actualizaciones de precios para: bitcoin, ethereum, monero y litecoin.
-var preciosEndPoint = new WebSocket("wss://ws.coincap.io/prices?assets=bitcoin,ethereum,monero,litecoin");
+// Usamos WebSocket gratuito de Binance Spot (sin token).
+// Vamos a solicitar precios para: bitcoin, ethereum, monero y litecoin.
+var preciosEndPoint = new WebSocket('wss://stream.binance.com:9443/stream?streams=btcusdt@miniTicker/ethusdt@miniTicker/xmrusdt@miniTicker/ltcusdt@miniTicker');
 
 // Cuando una de las criptomonedas cambia de precio, ejecutamos la función procesarNuevoMensaje.
 preciosEndPoint.onmessage = procesarNuevoMensaje;
+
+// Mapa simple para relacionar los simbolos de Binance con nuestro modelo.
+var simbolosBinance = {
+  BTCUSDT: 'bitcoin',
+  ETHUSDT: 'ethereum',
+  XMRUSDT: 'monero',
+  LTCUSDT: 'litecoin'
+};
 
 /**
  * Preprocesamiento y Modelado:
@@ -24,10 +32,23 @@ const monedas = [
 // Función que recibe los mensajes del Socket
 function procesarNuevoMensaje(mensaje) {
   // Convertimos los datos de texto a formato JSON
-  var mensajeJson = JSON.parse(mensaje.data);
+  var data = JSON.parse(mensaje.data);
+  if (!data || !data.data || !data.data.s) {
+    return;
+  }
+
+  var simbolo = data.data.s;
+  var nombreMoneda = simbolosBinance[simbolo];
+  if (!nombreMoneda) {
+    return;
+  }
+
+  // La API de Binance entrega el precio en data.data.c
+  var mensajeJson = {};
+  mensajeJson[nombreMoneda] = data.data.c;
 
   // Iteramos sobre los valores del mensaje que vienen en parejas de "nombre": "precio"
-  for (var nombreMoneda in mensajeJson) {
+  for (var nombreMonedaRecibido in mensajeJson) {
     // En el siguiente loop, pasamos por cada objeto que definimos en la variable "monedas" que contiene la nueva estructura de datos que queremos llenar.
     for (var i = 0; i < monedas.length; i++) {
       // objetoMoneda va a ser cada uno de los objetos del modelado, por ejemplo:
@@ -36,9 +57,12 @@ function procesarNuevoMensaje(mensaje) {
 
       // Comparamos el nombre de la moneda en nuestro modelo con el nombre de la moneda que cambió de valor y fue enviado por la API en el mensaje actual.
       // Si coinciden, significa que podemos actualizar los datos de nuestro modelo para esa moneda
-      if (objetoMoneda.nombre === nombreMoneda) {
+      if (objetoMoneda.nombre === nombreMonedaRecibido) {
         // Extraemos el precio actual que llegó en el mensaje y lo guardamos en una variable para usarla varias veces de ahora en adelante.
-        var nuevoPrecio = mensajeJson[nombreMoneda];
+        var nuevoPrecio = Number(mensajeJson[nombreMonedaRecibido]);
+        if (Number.isNaN(nuevoPrecio)) {
+          return;
+        }
 
         // En JavaScript, podemos insertar un nuevo elemento a un array usando push()
         // Aquí estamos sumando una nueva entrada a los datos de la moneda que acaba de cambiar el precio.
@@ -66,7 +90,7 @@ function procesarNuevoMensaje(mensaje) {
         }
 
         // Para terminar, actualizamos la gráfica que tengamos seleccionada en el menú
-        if (nombreMoneda === menu.value) {
+        if (nombreMonedaRecibido === menu.value) {
           actualizar(monedas[i]);
         }
       }
@@ -126,6 +150,9 @@ svg.append('g').attr('class', 'ejeY');
 // Recibe el objeto completo de una criptomoneda como lo definimos en el modelo.
 // Por ejemplo: { nombre: 'bitcoin', precioActual: null, precioMasAlto: null, precioMasBajo: null, datos: [] },
 function actualizar(objetoMoneda) {
+  if (!objetoMoneda || objetoMoneda.datos.length === 0) {
+    return;
+  }
   // Este texto es una combinación entre textos estáticos y variables.
   // De momento no es muy descriptivo, deben modificarlo para comenzar a ser más claros con el público general.
   // El que ven en el ejemplo terminado es:
